@@ -149,32 +149,66 @@ export default async function({login, graphql, rest, data, q, queries, imports, 
         const options = {repositories: {forks, affiliations, constraints: ""}, repositoriesContributedTo: {forks: "", affiliations: "", constraints: ", includeUserRepositories: false, contributionTypes: COMMIT"}}[type] ?? null
         data.user[type] = data.user[type] ?? {}
         data.user[type].nodes = data.user[type].nodes ?? []
-        do {
-          console.debug(`metrics/compute/${login}/base > retrieving ${type} after ${cursor}`)
-          const request = {}
-          try {
-            Object.assign(request, await graphql(queries.base.repositories({login, account, type, after: cursor ? `after: "${cursor}"` : "", repositories: Math.min(repositories, {user: _batch, organization: Math.min(25, _batch)}[account]), ...options})))
-          }
-          catch (error) {
-            console.debug(`metrics/compute/${login}/base > failed to retrieve ${_batch} repositories after ${cursor}, this is probably due to an API timeout, halving batch`)
-            _batch = Math.floor(_batch / 2)
-            if (_batch < 1) {
-              console.debug(`metrics/compute/${login}/base > failed to retrieve repositories, cannot halve batch anymore`)
-              throw error
+        const maxAttempts = 5
+        // Bounded-retry pagination loop. Replaces a buggy do-while where (1) the catch path's `continue`
+        // fell through to a while-condition that was still falsy on first failure (so retries never ran),
+        // and (2) the page-end check compared `pushed` against the total cap `repositories` instead of
+        // the per-page size, causing pagination to stop after a single page.
+        outer: while (true) {
+          //Page size = min(total cap, per-account batch ceiling). Used both for the GraphQL request and as the "no more pages" threshold.
+          const pageSize = Math.min(repositories, {user: _batch, organization: Math.min(25, _batch)}[account])
+          console.debug(`metrics/compute/${login}/base > retrieving ${type} after ${cursor} (batch=${_batch}, pageSize=${pageSize})`)
+          let request = null
+          let attempt = 0
+          while (attempt < maxAttempts) {
+            try {
+              request = await graphql(queries.base.repositories({login, account, type, after: cursor ? `after: "${cursor}"` : "", repositories: pageSize, ...options}))
+              break
             }
-            continue
+            catch (error) {
+              attempt++
+              const message = String(error?.message ?? error)
+              const transient = /timeout|ETIMEDOUT|ECONNRESET|EAI_AGAIN|502|503|504|abuse|secondary rate limit/i.test(message)
+              console.debug(`metrics/compute/${login}/base > attempt ${attempt}/${maxAttempts} failed for ${type} (batch=${_batch}) after ${cursor}: ${message}`)
+              //Halve the batch on transient errors or every other failure to reduce GraphQL payload pressure
+              if (transient || attempt % 2 === 0) {
+                _batch = Math.max(1, Math.floor(_batch / 2))
+              }
+              if (attempt >= maxAttempts) {
+                //If we already paginated some pages, keep the partial data and let downstream plugins work with it.
+                if (data.user[type].nodes.length > 0) {
+                  console.debug(`metrics/compute/${login}/base > giving up pagination for ${type} after ${attempt} attempts; keeping ${data.user[type].nodes.length} partial nodes`)
+                  break outer
+                }
+                throw error
+              }
+              const delay = Math.min(16000, 2000 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 1000)
+              await new Promise(resolve => setTimeout(resolve, delay))
+            }
+          }
+          if (!request) {
+            break
           }
           const {[account]: {[type]: {edges = [], nodes = []} = {}}} = request
           cursor = edges?.[edges?.length - 1]?.cursor
           data.user[type].nodes.push(...nodes)
           pushed = nodes.length
-          console.debug(`metrics/compute/${login}/base > retrieved ${pushed} ${type} after ${cursor}`)
-          if (pushed < repositories) {
-            console.debug(`metrics/compute/${login}/base > retrieved less repositories than expected, probably no more to fetch`)
+          console.debug(`metrics/compute/${login}/base > retrieved ${pushed} ${type} after ${cursor} (total=${data.user[type].nodes.length})`)
+          //End-of-data: page returned fewer items than the requested page size
+          if (pushed < pageSize) {
+            console.debug(`metrics/compute/${login}/base > retrieved less than page size, no more ${type} to fetch`)
+            break
+          }
+          //Defensive: cursor missing or empty page
+          if (!pushed || !cursor) {
+            break
+          }
+          //Cap reached across both repository types
+          const total = (data.user.repositories?.nodes?.length ?? 0) + (data.user.repositoriesContributedTo?.nodes?.length ?? 0)
+          if (total >= repositories) {
             break
           }
         }
-        while ((pushed) && (cursor) && ((data.user.repositories?.nodes?.length ?? 0) + (data.user.repositoriesContributedTo?.nodes?.length ?? 0) < repositories))
         //Limit repositories
         console.debug(`metrics/compute/${login}/base > keeping only ${repositories} ${type}`)
         data.user[type].nodes.splice(repositories)
