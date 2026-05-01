@@ -123,3 +123,4 @@ source/app/web/statics/preview
 .test
 source/run/serve/static/app.js
 metrics.config.yml
+.claude/scheduled_tasks.lock
