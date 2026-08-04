@@ -66,8 +66,9 @@ export class RecentAnalyzer extends Analyzer {
     const patches = [
       ...await Promise.allSettled(
         commits
-          .flatMap(({payload}) => payload.commits)
-          .filter(({committer}) => filters.text(committer?.email, this.authoring, {debug: false}))
+  .flatMap(({payload}) => payload?.commits ?? [])
+  .filter(({committer}) => committer)
+  .filter(({committer}) => filters.text(committer?.email, this.authoring, {debug: false}))
           .map(commit => commit.url)
           .map(async commit => (await this.rest.request(commit)).data),
       ),
