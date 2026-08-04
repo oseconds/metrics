@@ -1602,15 +1602,7 @@ runs:
         else
         echo "Using custom prebuilt image"
         METRICS_IMAGE=ghcr.io/oseconds/test-metrics:latest
-
-                  echo "Attempting to pull docker image: $METRICS_IMAGE"
-                  if ! docker image pull $METRICS_IMAGE; then
-                    echo "Failed to pull image, rebuilding"
-                    METRICS_IMAGE=metrics:forked-$METRICS_VERSION
-                  fi
-                fi
-              fi
-              echo "Image name: $METRICS_IMAGE"
+        fi
 
         # Build image if necessary
         set +e
