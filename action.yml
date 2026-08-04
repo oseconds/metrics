@@ -1600,22 +1600,17 @@ runs:
           fi
         # Forked action
         else
-          echo "Using a forked version (Funmatu)"
+        echo "Using custom prebuilt image"
+        METRICS_IMAGE=ghcr.io/oseconds/test-metrics:latest
 
-          if [[ "$METRICS_USE_PREBUILT_IMAGE" =~ ^([Ff]alse|[Oo]ff|[Nn]o|0)$ ]]; then
-            echo "Building fork locally"
-            METRICS_IMAGE=metrics:forked-$METRICS_VERSION
-          else
-            METRICS_IMAGE=ghcr.io/funmatu/metrics:master
-
-            echo "Attempting to pull docker image: $METRICS_IMAGE"
-            if ! docker image pull $METRICS_IMAGE; then
-              echo "Failed to pull image, rebuilding"
-              METRICS_IMAGE=metrics:forked-$METRICS_VERSION
-            fi
-          fi
-        fi
-        echo "Image name: $METRICS_IMAGE"
+                  echo "Attempting to pull docker image: $METRICS_IMAGE"
+                  if ! docker image pull $METRICS_IMAGE; then
+                    echo "Failed to pull image, rebuilding"
+                    METRICS_IMAGE=metrics:forked-$METRICS_VERSION
+                  fi
+                fi
+              fi
+              echo "Image name: $METRICS_IMAGE"
 
         # Build image if necessary
         set +e
