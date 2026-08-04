@@ -52,6 +52,14 @@ export default async function({login, q, imports, data, rest, account}, {enabled
     }
     console.debug(`metrics/compute/${login}/plugins > code > ${events.length} events loaded`)
 
+    console.log("events", events.length)
+
+    if (events.length) {
+      console.log(events[0].author)
+      console.log(events[0].files)
+      console.log(events[0].commit)
+    }
+
     //Search for a random snippet
     let files = events
       .flatMap(({created, sha, commit: {message, url}, files}) => files.map(({filename, status, additions, deletions, patch}) => ({created, sha, message, filename, status, additions, deletions, patch, repo: url.match(/repos[/](?<repo>[\s\S]+)[/]git[/]commits/)?.groups?.repo})))
