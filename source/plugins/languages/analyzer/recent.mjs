@@ -3,6 +3,8 @@ import linguist from "linguist-js"
 import { filters } from "../../../app/metrics/utils.mjs"
 import { Analyzer } from "./analyzer.mjs"
 
+
+console.log("CUSTOM RECENT FIX")
 /**Recent analyzer */
 export class RecentAnalyzer extends Analyzer {
   /**Constructor */
@@ -103,6 +105,8 @@ export class RecentAnalyzer extends Analyzer {
       }))
     return patches
   }
+
+  
 
   /**Run linguist against a commit and compute edited lines and bytes*/
   async linguist(_, {commit, cache: {languages}}) {
