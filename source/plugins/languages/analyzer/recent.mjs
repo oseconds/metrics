@@ -64,15 +64,15 @@ export class RecentAnalyzer extends Analyzer {
     //Retrieve edited files and filter edited lines (those starting with +/-) from patches
     this.debug("fetching patches")
     const patches = [
-      ...await Promise.allSettled(
-        commits
-  .flatMap(({payload}) => payload?.commits ?? [])
-  .filter(({committer}) => committer)
-  .filter(({committer}) => filters.text(committer?.email, this.authoring, {debug: false}))
-          .map(commit => commit.url)
-          .map(async commit => (await this.rest.request(commit)).data),
-      ),
-    ]
+  ...await Promise.allSettled(
+    commits
+      .flatMap(({payload}) => payload?.commits ?? [])
+      .filter(commit => commit?.committer)
+      .filter(({committer}) => filters.text(committer.email, this.authoring, {debug: false}))
+      .map(commit => commit.url)
+      .map(async commit => (await this.rest.request(commit)).data),
+  ),
+]
       .filter(({status}) => status === "fulfilled")
       .map(({value}) => value)
       .filter(({parents}) => parents.length <= 1)
