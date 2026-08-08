@@ -79,14 +79,24 @@ const authoredCommits = allCommits
 
 this.debug(`recent: ${authoredCommits.length} commits after authoring filter`)
 
-const patches = [
-  ...(await Promise.allSettled(
-    authoredCommits
-      .map(commit => commit.url)
-      .map(async commit => (await this.rest.request(commit)).data)
-  ))
-]
-  .filter(({status}) => status === "fulfilled")
+const responses = await Promise.allSettled(
+  authoredCommits
+    .map(commit => commit.url)
+    .map(async commit => (await this.rest.request(commit)).data)
+)
+
+const fulfilled = responses.filter(({status}) => status === "fulfilled")
+const rejected = responses.filter(({status}) => status === "rejected")
+
+this.debug(`recent: commit API requests = ${responses.length}`)
+this.debug(`recent: fulfilled = ${fulfilled.length}`)
+this.debug(`recent: rejected = ${rejected.length}`)
+
+if (rejected.length) {
+  this.debug(`recent: first API error = ${rejected[0].reason}`)
+}
+
+const patches = fulfilled
   .map(({value}) => value)
   .filter(({parents}) => parents.length <= 1)
   .map(({sha, commit: {message, committer}, verification, files}) => ({
@@ -117,9 +127,6 @@ const patches = [
       return edition
     }),
   }))
-
-this.debug(`recent: received ${patches.length} commit details`)
-
 return patches
   }
 
