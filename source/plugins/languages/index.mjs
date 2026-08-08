@@ -107,13 +107,6 @@ export default async function({login, data, imports, q, rest, account}, {enabled
         // Allow custom color to target the alias name directly
         if (colors[alias.toLocaleLowerCase()])
           customColors[alias] = colors[alias.toLocaleLowerCase()]
-
-        delete stats[language]
-        stats[alias] = (stats[alias] ?? 0) + value
-
-        console.debug(
-          `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
-        )
       }
     }
 
