@@ -65,16 +65,29 @@ export class RecentAnalyzer extends Analyzer {
 
     //Retrieve edited files and filter edited lines (those starting with +/-) from patches
     this.debug("fetching patches")
+    const eventCommits = commits.flatMap(({payload}) => payload?.commits ?? [])
+
+    
+    //Filter commits authored by the user (or by a gpg key associated with the user)
+    this.debug(`event commits: ${eventCommits.length}`)
+
+    const authoredCommits = eventCommits
+      .filter(commit => commit?.committer)
+      .filter(commit => filters.text(commit.committer.email, this.authoring, {debug: false}))
+
+    this.debug(`authored commits: ${authoredCommits.length}`)
+    this.debug(`authoring filter: ${JSON.stringify(this.authoring)}`)
+    
     const patches = [
   ...await Promise.allSettled(
     commits
-  .flatMap(({payload}) => payload?.commits ?? [])
-  .filter(commit => commit?.committer)
-  .filter(commit => filters.text(commit.committer.email, this.authoring, {debug:false}))
-      .map(commit => commit.url)
-      .map(async commit => (await this.rest.request(commit)).data),
-  ),
-]
+      .flatMap(({payload}) => payload?.commits ?? [])
+      .filter(commit => commit?.committer)
+      .filter(commit => filters.text(commit.committer.email, this.authoring, {debug:false}))
+          .map(commit => commit.url)
+          .map(async commit => (await this.rest.request(commit)).data),
+      ),
+    ]
       .filter(({status}) => status === "fulfilled")
       .map(({value}) => value)
       .filter(({parents}) => parents.length <= 1)
