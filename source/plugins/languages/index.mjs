@@ -91,6 +91,8 @@ export default async function({login, data, imports, q, rest, account}, {enabled
     }
 
     // Apply aliases and group languages when needed
+    const stats = languages.stats
+
     for (const [language, value] of Object.entries(stats)) {
       if (language.toLocaleLowerCase() in aliases) {
         const alias = aliases[language.toLocaleLowerCase()]
