@@ -56,8 +56,7 @@ export default async function({login, data, imports, q, rest, account}, {enabled
       //Process repository languages
       for (const {size, node: {color, name}} of Object.values(repository.languages.edges)) {
         languages.stats[name] = (languages.stats[name] ?? 0) + size
-        if (colors[name.toLocaleLowerCase()])
-          customColors[name] = colors[name.toLocaleLowerCase()]
+
         if (!languages.colors[name])
           languages.colors[name] = color
         languages.total += size
@@ -116,6 +115,12 @@ export default async function({login, data, imports, q, rest, account}, {enabled
           `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
         )
       }
+    }
+
+    // Apply custom colors to final language names
+    for (const name of Object.keys(stats)) {
+      if (colors[name.toLocaleLowerCase()])
+        customColors[name] = colors[name.toLocaleLowerCase()]
     }
 
     //Compute languages stats
