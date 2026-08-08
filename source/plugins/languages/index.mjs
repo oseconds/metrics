@@ -93,21 +93,29 @@ export default async function({login, data, imports, q, rest, account}, {enabled
     const stats = languages.stats
 
     for (const [language, value] of Object.entries(stats)) {
-      if (language.toLocaleLowerCase() in aliases) {
-        const alias = aliases[language.toLocaleLowerCase()]
+      if (!(language.toLocaleLowerCase() in aliases))
+        continue
 
-        // Preserve original color
-        if (languages.colors[language] && !languages.colors[alias])
-          languages.colors[alias] = languages.colors[language]
+      const alias = aliases[language.toLocaleLowerCase()]
 
-        // Move custom color to alias
-        if (customColors[language] && !customColors[alias])
-          customColors[alias] = customColors[language]
+      // Preserve original color
+      if (languages.colors[language] && !languages.colors[alias])
+        languages.colors[alias] = languages.colors[language]
 
-        // Allow custom color to target the alias name directly
-        if (colors[alias.toLocaleLowerCase()])
-          customColors[alias] = colors[alias.toLocaleLowerCase()]
-      }
+      // Move custom color to alias
+      if (customColors[language] && !customColors[alias])
+        customColors[alias] = customColors[language]
+
+      // Allow custom color to target the alias name directly
+      if (colors[alias.toLocaleLowerCase()])
+        customColors[alias] = colors[alias.toLocaleLowerCase()]
+
+      delete stats[language]
+      stats[alias] = (stats[alias] ?? 0) + value
+
+      console.debug(
+        `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
+      )
     }
 
     // Apply custom colors to final language names
