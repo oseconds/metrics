@@ -30,105 +30,209 @@ export class RecentAnalyzer extends Analyzer {
 
   /**Fetch patches */
   async patches() {
-    //Fetch commits from recent activity
-    this.debug(`fetching patches from last ${this.days || ""} days up to ${this.load || "∞"} events`)
-    const commits = [], pages = Math.ceil((this.load || Infinity) / 100)
-    if (this.context.mode === "repository") {
-      try {
-        const {data: {default_branch: branch}} = await this.rest.repos.get(this.context)
-        this.context.branch = branch
-        this.results.branch = branch
-        this.debug(`default branch for ${this.context.owner}/${this.context.repo} is ${branch}`)
-      }
-      catch (error) {
-        this.debug(`failed to get default branch for ${this.context.owner}/${this.context.repo} (${error})`)
-      }
+  // Fetch commits from recent activity
+  this.debug(`fetching patches from last ${this.days || ""} days up to ${this.load || "∞"} events`)
+
+  const cutoff = this.days
+    ? new Date(Date.now() - this.days * 24 * 60 * 60 * 1000)
+    : null
+
+  const repositories = new Map()
+
+  // Repository mode: analyze the selected repository directly
+  if (this.context.mode === "repository") {
+    try {
+      const {data: {default_branch: branch}} = await this.rest.repos.get(this.context)
+      this.context.branch = branch
+      this.results.branch = branch
+      repositories.set(`${this.context.owner}/${this.context.repo}`, {
+        owner: this.context.owner,
+        repo: this.context.repo,
+      })
+      this.debug(`default branch for ${this.context.owner}/${this.context.repo} is ${branch}`)
     }
+    catch (error) {
+      this.debug(`failed to get default branch for ${this.context.owner}/${this.context.repo} (${error})`)
+    }
+  }
+  else {
+    // Global mode: use recent PushEvents only to discover repositories.
+    // Do not rely on payload.commits because GitHub may omit it.
+    const events = []
+    const pages = Math.ceil((this.load || 500) / 100)
+
     try {
       for (let page = 1; page <= pages; page++) {
         this.debug(`fetching events page ${page}`)
-        commits.push(
-          ...(await (this.context.mode === "repository" ? this.rest.activity.listRepoEvents(this.context) : this.rest.activity.listEventsForAuthenticatedUser({username: this.login, per_page: 100, page}))).data
-            .filter(({type, payload}) => (type === "PushEvent") && ((this.context.mode !== "repository") || ((this.context.mode === "repository") && (payload?.ref?.includes?.(`refs/heads/${this.context.branch}`)))))
-            .filter(({actor}) => (this.account === "organization") || (this.context.mode === "repository") ? true : !filters.text(actor.login, [this.login], {debug: false}))
-            .filter(({repo: {name: repo}}) => !this.ignore(repo))
-            .filter(({created_at}) => ((!this.days) || (new Date(created_at) > new Date(Date.now() - this.days * 24 * 60 * 60 * 1000)))),
+
+        const loaded = (
+          await this.rest.activity.listEventsForAuthenticatedUser({
+            username: this.login,
+            per_page: 100,
+            page,
+          })
+        ).data
+
+        if (!loaded.length)
+          break
+
+        events.push(
+          ...loaded.filter(({type, created_at, repo}) =>
+            type === "PushEvent" &&
+            repo?.name &&
+            (!cutoff || new Date(created_at) > cutoff)
+          )
         )
       }
     }
     catch {
       this.debug("no more page to load")
     }
-    this.debug(`fetched ${commits.length} commits`)
-    this.results.latest = Math.round((new Date().getTime() - new Date(commits.slice(-1).shift()?.created_at).getTime()) / (1000 * 60 * 60 * 24))
-    this.results.commits = commits.length
 
-    //Retrieve edited files and filter edited lines (those starting with +/-) from patches
-    // Retrieve edited files and filter edited lines
-this.debug("fetching patches")
+    for (const {repo: {name}} of events) {
+      const [owner, repo] = name.split("/")
+      if (owner && repo && !this.ignore(name))
+        repositories.set(name, {owner, repo})
+    }
 
-const allCommits = commits
-  .flatMap(({payload}) => payload?.commits ?? [])
-  .filter(commit => commit?.committer)
-
-this.debug(`recent: ${allCommits.length} commits before authoring filter`)
-this.debug(`recent: authoring = ${JSON.stringify(this.authoring)}`)
-
-const authoredCommits = allCommits
-  .filter(commit => filters.text(commit.committer.email, this.authoring, {debug: false}))
-
-this.debug(`recent: ${authoredCommits.length} commits after authoring filter`)
-
-const responses = await Promise.allSettled(
-  authoredCommits
-    .map(commit => commit.url)
-    .map(async commit => (await this.rest.request(commit)).data)
-)
-
-const fulfilled = responses.filter(({status}) => status === "fulfilled")
-const rejected = responses.filter(({status}) => status === "rejected")
-
-this.debug(`recent: commit API requests = ${responses.length}`)
-this.debug(`recent: fulfilled = ${fulfilled.length}`)
-this.debug(`recent: rejected = ${rejected.length}`)
-
-if (rejected.length) {
-  this.debug(`recent: first API error = ${rejected[0].reason}`)
-}
-
-const patches = fulfilled
-  .map(({value}) => value)
-  .filter(({parents}) => parents.length <= 1)
-  .map(({sha, commit: {message, committer}, verification, files}) => ({
-    sha,
-    name: `${message} (authored by ${committer.name} on ${committer.date})`,
-    verified: verification?.verified ?? null,
-    editions: files.map(({filename, patch = ""}) => {
-      const edition = {
-        path: filename,
-        added: {lines: 0, bytes: 0},
-        deleted: {lines: 0, bytes: 0},
-        patch,
-      }
-
-      for (const line of patch.split("\n")) {
-        if ((!/^[-+]/.test(line)) || (!line.trim().length))
-          continue
-
-        if (this.markers.line.test(line)) {
-          const {op = "+", content = ""} = line.match(this.markers.line)?.groups ?? {}
-          const size = Buffer.byteLength(content, "utf-8")
-          edition[{"+": "added", "-": "deleted"}[op]].bytes += size
-          edition[{"+": "added", "-": "deleted"}[op]].lines++
-          continue
-        }
-      }
-
-      return edition
-    }),
-  }))
-return patches
+    this.debug(`found ${repositories.size} repositories from recent push events`)
   }
+
+  // Load commits directly from repositories.
+  // This replaces PushEvent.payload.commits.
+  const commits = []
+
+  for (const repository of repositories.values()) {
+    try {
+      for (let page = 1;; page++) {
+        const {data: loaded} = await this.rest.repos.listCommits({
+          ...repository,
+          author: this.login,
+          per_page: 100,
+          page,
+        })
+
+        if (!loaded.length)
+          break
+
+        for (const commit of loaded) {
+          const date =
+            commit?.commit?.author?.date ||
+            commit?.commit?.committer?.date
+
+          if (cutoff && date && new Date(date) <= cutoff)
+            break
+
+          if (commit?.url)
+            commits.push(commit)
+
+          if (this.load && commits.length >= this.load)
+            break
+        }
+
+        if (
+          loaded.length < 100 ||
+          (this.load && commits.length >= this.load) ||
+          (cutoff && loaded.some(commit => {
+            const date = commit?.commit?.author?.date || commit?.commit?.committer?.date
+            return date && new Date(date) <= cutoff
+          }))
+        )
+          break
+      }
+    }
+    catch (error) {
+      this.debug(`failed to fetch commits from ${repository.owner}/${repository.repo} (${error})`)
+    }
+
+    if (this.load && commits.length >= this.load)
+      break
+  }
+
+  // Remove duplicate commits
+  const unique = [
+    ...new Map(commits.map(commit => [commit.sha, commit])).values()
+  ]
+
+  // Newest first
+  unique.sort((a, b) => {
+    const ad = new Date(a?.commit?.author?.date || a?.commit?.committer?.date || 0)
+    const bd = new Date(b?.commit?.author?.date || b?.commit?.committer?.date || 0)
+    return bd - ad
+  })
+
+  const selected = this.load
+    ? unique.slice(0, this.load)
+    : unique
+
+  this.debug(`fetched ${selected.length} authored commits`)
+
+  this.results.latest = Math.round(
+    (Date.now() - new Date(
+      selected[0]?.commit?.author?.date ||
+      selected[0]?.commit?.committer?.date
+    ).getTime()) / (1000 * 60 * 60 * 24)
+  )
+
+  this.results.commits = selected.length
+
+  // Retrieve edited files and patches from individual commit API.
+  this.debug("fetching patches")
+
+  const responses = await Promise.allSettled(
+    selected.map(commit =>
+      this.rest.request(commit.url).then(response => response.data)
+    )
+  )
+
+  const fulfilled = responses.filter(({status}) => status === "fulfilled")
+  const rejected = responses.filter(({status}) => status === "rejected")
+
+  this.debug(`commit API requests = ${responses.length}`)
+  this.debug(`fulfilled = ${fulfilled.length}`)
+  this.debug(`rejected = ${rejected.length}`)
+
+  if (rejected.length)
+    this.debug(`first API error = ${rejected[0].reason}`)
+
+  const patches = fulfilled
+    .map(({value}) => value)
+    .filter(({parents}) => (parents?.length ?? 0) <= 1)
+    .map(({sha, commit: {message, committer}, verification, files = []}) => ({
+      sha,
+      name: `${message} (authored by ${committer.name} on ${committer.date})`,
+      verified: verification?.verified ?? null,
+      editions: files.map(({filename, patch = ""}) => {
+        const edition = {
+          path: filename,
+          added: {lines: 0, bytes: 0},
+          deleted: {lines: 0, bytes: 0},
+          patch,
+        }
+
+        for (const line of patch.split("\n")) {
+          if ((!/^[-+]/.test(line)) || (!line.trim().length))
+            continue
+
+          if (this.markers.line.test(line)) {
+            const {op = "+", content = ""} =
+              line.match(this.markers.line)?.groups ?? {}
+
+            const size = Buffer.byteLength(content, "utf-8")
+
+            edition[{"+": "added", "-": "deleted"}[op]].bytes += size
+            edition[{"+": "added", "-": "deleted"}[op]].lines++
+          }
+        }
+
+        return edition
+      }),
+    }))
+
+  this.debug(`received ${patches.length} commit details`)
+
+  return patches
+}
 
   
 
