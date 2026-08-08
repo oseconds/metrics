@@ -91,28 +91,28 @@ export default async function({login, data, imports, q, rest, account}, {enabled
     }
 
     // Apply aliases and group languages when needed
-    for (const stats of [languages.stats, languages.lines, languages["stats.recent"].stats, languages["stats.recent"].lines]) {
-      if (!stats)
-        continue
-    
-      for (const [language, value] of Object.entries(stats)) {
-        if (language.toLocaleLowerCase() in aliases) {
-          const alias = aliases[language.toLocaleLowerCase()]
-    
-          // Preserve the original language color and custom color
-          if (languages.colors[language] && !languages.colors[alias])
-            languages.colors[alias] = languages.colors[language]
-    
-          if (customColors[language] && !customColors[alias])
-            customColors[alias] = customColors[language]
-    
-          delete stats[language]
-          stats[alias] = (stats[alias] ?? 0) + value
-    
-          console.debug(
-            `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
-          )
-        }
+    for (const [language, value] of Object.entries(stats)) {
+      if (language.toLocaleLowerCase() in aliases) {
+        const alias = aliases[language.toLocaleLowerCase()]
+
+        // Preserve original color
+        if (languages.colors[language] && !languages.colors[alias])
+          languages.colors[alias] = languages.colors[language]
+
+        // Move custom color to alias
+        if (customColors[language] && !customColors[alias])
+          customColors[alias] = customColors[language]
+
+        // Allow custom color to target the alias name directly
+        if (colors[alias.toLocaleLowerCase()])
+          customColors[alias] = colors[alias.toLocaleLowerCase()]
+
+        delete stats[language]
+        stats[alias] = (stats[alias] ?? 0) + value
+
+        console.debug(
+          `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
+        )
       }
     }
 
