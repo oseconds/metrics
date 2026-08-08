@@ -64,46 +64,63 @@ export class RecentAnalyzer extends Analyzer {
     this.results.commits = commits.length
 
     //Retrieve edited files and filter edited lines (those starting with +/-) from patches
-    this.debug("fetching patches")
-    const patches = [
-  ...await Promise.allSettled(
-    commits
+    // Retrieve edited files and filter edited lines
+this.debug("fetching patches")
+
+const allCommits = commits
   .flatMap(({payload}) => payload?.commits ?? [])
   .filter(commit => commit?.committer)
-  .filter(commit => filters.text(commit.committer.email, this.authoring, {debug:false}))
+
+this.debug(`recent: ${allCommits.length} commits before authoring filter`)
+this.debug(`recent: authoring = ${JSON.stringify(this.authoring)}`)
+
+const authoredCommits = allCommits
+  .filter(commit => filters.text(commit.committer.email, this.authoring, {debug: false}))
+
+this.debug(`recent: ${authoredCommits.length} commits after authoring filter`)
+
+const patches = [
+  ...(await Promise.allSettled(
+    authoredCommits
       .map(commit => commit.url)
-      .map(async commit => (await this.rest.request(commit)).data),
-  ),
+      .map(async commit => (await this.rest.request(commit)).data)
+  ))
 ]
-      .filter(({status}) => status === "fulfilled")
-      .map(({value}) => value)
-      .filter(({parents}) => parents.length <= 1)
-      .map(({sha, commit: {message, committer}, verification, files}) => ({
-        sha,
-        name: `${message} (authored by ${committer.name} on ${committer.date})`,
-        verified: verification?.verified ?? null,
-        editions: files.map(({filename, patch = ""}) => {
-          const edition = {
-            path: filename,
-            added: {lines: 0, bytes: 0},
-            deleted: {lines: 0, bytes: 0},
-            patch,
-          }
-          for (const line of patch.split("\n")) {
-            if ((!/^[-+]/.test(line)) || (!line.trim().length))
-              continue
-            if (this.markers.line.test(line)) {
-              const {op = "+", content = ""} = line.match(this.markers.line)?.groups ?? {}
-              const size = Buffer.byteLength(content, "utf-8")
-              edition[{"+": "added", "-": "deleted"}[op]].bytes += size
-              edition[{"+": "added", "-": "deleted"}[op]].lines++
-              continue
-            }
-          }
-          return edition
-        }),
-      }))
-    return patches
+  .filter(({status}) => status === "fulfilled")
+  .map(({value}) => value)
+  .filter(({parents}) => parents.length <= 1)
+  .map(({sha, commit: {message, committer}, verification, files}) => ({
+    sha,
+    name: `${message} (authored by ${committer.name} on ${committer.date})`,
+    verified: verification?.verified ?? null,
+    editions: files.map(({filename, patch = ""}) => {
+      const edition = {
+        path: filename,
+        added: {lines: 0, bytes: 0},
+        deleted: {lines: 0, bytes: 0},
+        patch,
+      }
+
+      for (const line of patch.split("\n")) {
+        if ((!/^[-+]/.test(line)) || (!line.trim().length))
+          continue
+
+        if (this.markers.line.test(line)) {
+          const {op = "+", content = ""} = line.match(this.markers.line)?.groups ?? {}
+          const size = Buffer.byteLength(content, "utf-8")
+          edition[{"+": "added", "-": "deleted"}[op]].bytes += size
+          edition[{"+": "added", "-": "deleted"}[op]].lines++
+          continue
+        }
+      }
+
+      return edition
+    }),
+  }))
+
+this.debug(`recent: received ${patches.length} commit details`)
+
+return patches
   }
 
   
