@@ -1600,15 +1600,8 @@ runs:
           fi
         # Forked action
         else
-          echo "Using custom prebuilt image"
-
-          METRICS_IMAGE=ghcr.io/oseconds/test-metrics:latest
-
-          echo "Attempting to pull docker image: $METRICS_IMAGE"
-          if ! docker image pull $METRICS_IMAGE; then
-            echo "Failed to pull image, rebuilding"
-            METRICS_IMAGE=metrics:forked-$METRICS_VERSION
-          fi
+          echo "Using forked action, rebuilding image from Dockerfile"
+          METRICS_IMAGE=metrics:forked-$METRICS_VERSION
         fi
 
         # Build image if necessary
@@ -1616,6 +1609,7 @@ runs:
         docker image inspect $METRICS_IMAGE
         METRICS_IMAGE_NEEDS_BUILD="$?"
         set -e
+
         if [[ "$METRICS_IMAGE_NEEDS_BUILD" -gt "0" ]]; then
           echo "Image $METRICS_IMAGE is not present locally, rebuilding it from Dockerfile"
           docker build -t $METRICS_IMAGE .
