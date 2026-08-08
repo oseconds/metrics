@@ -90,7 +90,9 @@ export default async function({login, data, imports, q, rest, account}, {enabled
     }
 
     // Apply aliases and group languages when needed
+    // Apply aliases and group languages when needed
     const stats = languages.stats
+    const lines = languages.lines
 
     for (const [language, value] of Object.entries(stats)) {
       if (!(language.toLocaleLowerCase() in aliases))
@@ -110,8 +112,15 @@ export default async function({login, data, imports, q, rest, account}, {enabled
       if (colors[alias.toLocaleLowerCase()])
         customColors[alias] = colors[alias.toLocaleLowerCase()]
 
+      // Move stats to alias
       delete stats[language]
       stats[alias] = (stats[alias] ?? 0) + value
+
+      // Move line counts to alias
+      if (lines[language] !== undefined) {
+        lines[alias] = (lines[alias] ?? 0) + lines[language]
+        delete lines[language]
+      }
 
       console.debug(
         `metrics/compute/${login}/plugins > languages > ${language} -> ${alias}: ${stats[alias]} (+${value})`
